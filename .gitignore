@@ -1,0 +1,15 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dynamo backups
+*.dyn.bak
+backup/
+
+# Revit temp/lock files (in case sample RVTs are ever added)
+*.rte
+*~*.rvt
+*.0001.rvt
+
+# Editor files
+.vscode/

@@ -1,0 +1,250 @@
+{
+  "Uuid": "eb920587-7d04-4802-a0b3-fcd80ce90f00",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "Hanger alignment for Pipes",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "4ffe563953e941dc9534c151babc67e9",
+      "NodeType": "FunctionNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "9b64884019f44271944f6af46ff57b53",
+          "Name": "Document",
+          "Description": "Document",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "FunctionSignature": "Revit.Application.Document.Current",
+      "Replication": "Auto",
+      "Description": "Get the current document\n\nDocument.Current: Document"
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "\"\"\"\r\nDynamo Python Script node\r\nRevit 2026 / Dynamo (CPython3 / PythonNet3 engine)\r\n\r\nPURPOSE\r\n-------\r\nFor every Pipe Hanger in a chosen 3D view, set the hanger's\r\n\"Elevation from Level\" instance parameter equal to its host pipe's\r\nMIDDLE (centerline) elevation from the same level, so the hanger\r\nsits centered on the pipe instead of at the pipe's default offset.\r\n\r\nINPUTS\r\n------\r\nIN[0]  : Revit View (the 3D view to scope the hangers to). Use a\r\n         \"Select Model Element\" node set to a view, or the \"Views\"\r\n         node, wired into this input.\r\nIN[1]  : Document (use \"Document.Current\" from a document node, or\r\n         leave wired to the default Document node - not the active\r\n         UIDocument).\r\nIN[2]  : DRY_RUN (bool). True = report only, no changes written.\r\n         False = actually update the parameter.\r\n\r\nOUTPUT\r\n------\r\nOUT = report dictionary: processed / updated / skipped / errors,\r\n      each a list of strings (Element Id + reason).\r\n\r\nNOTES / ASSUMPTIONS (confirm these match your model before a real run)\r\n------------------------------------------------------------------\r\n- Hangers are Revit \"Pipe Hanger\" category (OST_PipeHanger) family\r\n  instances that are hosted directly on the pipe (FamilyInstance.Host\r\n  or .SuperComponent resolves to the Pipe). If your hangers are NOT\r\n  hosted on the pipe (e.g. hosted on a face/level with no direct\r\n  Host relationship to the pipe), this script cannot find the pipe\r\n  automatically - tell me how the hanger otherwise references its\r\n  pipe (a parameter? proximity?) and I'll adjust.\r\n- The hanger has an editable instance parameter literally named\r\n  \"Elevation from Level\". If your family uses a different parameter\r\n  name (e.g. \"Offset\", \"Hanger Elevation\"), change PARAM_NAME below.\r\n- Pipe \"middle elevation\" = average Z of the pipe's location curve\r\n  start and end points, converted to an elevation relative to the\r\n  hanger's reference level (Level parameter on the hanger, falling\r\n  back to the pipe's reference level if the hanger has none).\r\n- Always run with DRY_RUN = True first and check the report before\r\n  committing, especially given the crash you hit on the large-model\r\n  run of the earlier parameter script - test on a small view first.\r\n\"\"\"\r\n\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import (\r\n    FilteredElementCollector, BuiltInCategory, FamilyInstance,\r\n    Transaction, Level, XYZ, LocationCurve\r\n)\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\nPARAM_NAME = \"Elevation from Level\"\r\n\r\nview = UnwrapElement(IN[0])\r\ndoc = UnwrapElement(IN[1]) if IN[1] is not None else DocumentManager.Instance.CurrentDBDocument\r\ndry_run = IN[2]\r\n\r\nreport = {\"processed\": [], \"updated\": [], \"skipped\": [], \"errors\": []}\r\n\r\ndef get_level_elevation(level_id):\r\n    lvl = doc.GetElement(level_id)\r\n    if lvl is None or not isinstance(lvl, Level):\r\n        return None\r\n    return lvl.Elevation\r\n\r\ndef get_pipe_mid_z(pipe):\r\n    loc = pipe.Location\r\n    if not isinstance(loc, LocationCurve):\r\n        return None\r\n    curve = loc.Curve\r\n    p0 = curve.GetEndPoint(0)\r\n    p1 = curve.GetEndPoint(1)\r\n    return (p0.Z + p1.Z) / 2.0\r\n\r\ndef get_host_pipe(hanger):\r\n    host = None\r\n    try:\r\n        host = hanger.Host\r\n    except Exception:\r\n        host = None\r\n    if host is None:\r\n        try:\r\n            host = hanger.SuperComponent\r\n        except Exception:\r\n            host = None\r\n    if host is not None and host.Category is not None \\\r\n       and host.Category.Id.IntegerValue == int(BuiltInCategory.OST_PipeCurves):\r\n        return host\r\n    return None\r\n\r\ncollector = FilteredElementCollector(doc, view.Id) \\\r\n    .OfCategory(BuiltInCategory.OST_PipeHanger) \\\r\n    .WhereElementIsNotElementType()\r\n\r\nhangers = list(collector)\r\nreport[\"processed\"] = [\"{} total hanger(s) found in view\".format(len(hangers))]\r\n\r\nif not dry_run:\r\n    TransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\nfor h in hangers:\r\n    eid = h.Id.IntegerValue\r\n    try:\r\n        pipe = get_host_pipe(h)\r\n        if pipe is None:\r\n            report[\"skipped\"].append(\"Id {}: no host pipe found\".format(eid))\r\n            continue\r\n\r\n        mid_z = get_pipe_mid_z(pipe)\r\n        if mid_z is None:\r\n            report[\"skipped\"].append(\"Id {}: pipe has no location curve\".format(eid))\r\n            continue\r\n\r\n        # reference level: prefer hanger's own Level, fall back to pipe's\r\n        level_id = h.LevelId\r\n        if level_id is None or level_id.IntegerValue == -1:\r\n            level_id = pipe.ReferenceLevel.Id if pipe.ReferenceLevel else None\r\n        if level_id is None:\r\n            report[\"skipped\"].append(\"Id {}: no reference level found\".format(eid))\r\n            continue\r\n\r\n        level_elev = get_level_elevation(level_id)\r\n        if level_elev is None:\r\n            report[\"skipped\"].append(\"Id {}: could not read level elevation\".format(eid))\r\n            continue\r\n\r\n        target_elev_from_level = mid_z - level_elev\r\n\r\n        param = h.LookupParameter(PARAM_NAME)\r\n        if param is None:\r\n            report[\"skipped\"].append(\"Id {}: no '{}' parameter on this family\".format(eid, PARAM_NAME))\r\n            continue\r\n        if param.IsReadOnly:\r\n            report[\"skipped\"].append(\"Id {}: '{}' is read-only\".format(eid, PARAM_NAME))\r\n            continue\r\n\r\n        current = param.AsDouble()\r\n        if abs(current - target_elev_from_level) < 1e-6:\r\n            report[\"skipped\"].append(\"Id {}: already at target elevation\".format(eid))\r\n            continue\r\n\r\n        if not dry_run:\r\n            param.Set(target_elev_from_level)\r\n\r\n        report[\"updated\"].append(\r\n            \"Id {}: {} -> {:.4f} ft (host pipe Id {})\".format(\r\n                eid, PARAM_NAME, target_elev_from_level, pipe.Id.IntegerValue))\r\n\r\n    except Exception as e:\r\n        report[\"errors\"].append(\"Id {}: {}\".format(eid, str(e)))\r\n\r\nif not dry_run:\r\n    TransactionManager.Instance.TransactionTaskDone()\r\n\r\nOUT = report",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "d98b750f5d9040698dc83b5dcdc8d95f",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "1834ce3a843d4b4e89d72a60607fefce",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "09b70c101a924128ad90f3acdcb6c8e4",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "070212b8959841b4bc1714dace8b44a1",
+          "Name": "IN[2]",
+          "Description": "Input #2",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "f798dee46c9248da940279a04cc15ff0",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "bc9f0b3e68564e24ae2dcf2bfd7f3245",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "ff1443fb1cd94634af23dc09615e8952",
+          "Name": "",
+          "Description": "Boolean",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Enables selection between True and False",
+      "InputValue": true
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 200.0,
+      "WatchHeight": 200.0,
+      "Id": "fdb9bfb0a0754d209bf9fec2a0ad5fc5",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "c352e4d733fa425a827b0681e2f5b1c7",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "f105b82fba2a48fe85a433b93298b80b",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "9b64884019f44271944f6af46ff57b53",
+      "End": "09b70c101a924128ad90f3acdcb6c8e4",
+      "Id": "6727de178bf546b383105ed041ab1688",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "f798dee46c9248da940279a04cc15ff0",
+      "End": "c352e4d733fa425a827b0681e2f5b1c7",
+      "Id": "1d8c71ae91f24a7e8d1c2318a74ec809",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "ff1443fb1cd94634af23dc09615e8952",
+      "End": "070212b8959841b4bc1714dace8b44a1",
+      "Id": "18e1a5d43a0b4b1d9826faa2ffa3cb7e",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": null,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Properties",
+      "Version": "3.4",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "9.0",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.4.1.7055",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "4ffe563953e941dc9534c151babc67e9",
+        "Name": "Document.Current",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 290.5,
+        "Y": 321.0
+      },
+      {
+        "Id": "d98b750f5d9040698dc83b5dcdc8d95f",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 588.5,
+        "Y": 226.0
+      },
+      {
+        "Id": "bc9f0b3e68564e24ae2dcf2bfd7f3245",
+        "Name": "Boolean",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 231.5,
+        "Y": 512.0
+      },
+      {
+        "Id": "fdb9bfb0a0754d209bf9fec2a0ad5fc5",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 971.5,
+        "Y": 283.0
+      }
+    ],
+    "Annotations": [],
+    "X": 0.0,
+    "Y": 0.0,
+    "Zoom": 1.0
+  }
+}
