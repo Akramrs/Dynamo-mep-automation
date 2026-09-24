@@ -30,4 +30,6 @@ Every script folder includes:
 
 ## Contact
 
-*(Add your name, LinkedIn, and email here)*
+Akram R S 
+linkedin - www.linkedin.com/in/akramrs
+Gmail - akramrs.028@gmail.com
