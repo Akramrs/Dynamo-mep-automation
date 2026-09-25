@@ -1,5 +1,9 @@
 # Pipe Hanger Alignment for Chilled Water Pipes
 
+![Dynamo graph](assets/dynamo-graph.png)
+
+**Sample run:** 12 hangers found matching the target family name, checked against 94 pipes in view — hangers out of tolerance were corrected in one run (see report output below).
+
 ## Overview
 This script automatically aligns Pipe Hangers to their host Chilled Water (CHW) pipe's centerline elevation, within a selected 3D view. Instead of manually checking and nudging each hanger's elevation to match the pipe it supports, the script reads the pipe's actual centerline height and writes it back to the hanger's `Elevation from Level` parameter in one run.
 
@@ -45,5 +49,5 @@ A report dictionary with four lists:
 - The hanger family has an editable instance parameter named **`Elevation from Level`** (rename `PARAM_NAME` in the script if your family uses a different name).
 - Always run with `DRY_RUN = True` first to review the report before committing changes on a production model.
 
-## Preview
-*(Add a screenshot of the Dynamo graph and/or a before/after model view here)*
+## Before / After
+![Hanger alignment demo](assets/hanger-alignment-demo.gif)
