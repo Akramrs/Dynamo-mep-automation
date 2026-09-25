@@ -49,5 +49,3 @@ A report dictionary with four lists:
 - The hanger family has an editable instance parameter named **`Elevation from Level`** (rename `PARAM_NAME` in the script if your family uses a different name).
 - Always run with `DRY_RUN = True` first to review the report before committing changes on a production model.
 
-## Before / After
-![Hanger alignment demo](assets/hanger-alignment-demo.gif)
