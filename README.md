@@ -18,6 +18,7 @@ Every script folder includes:
 | # | Script | Category | Description |
 |---|--------|----------|--------------|
 | 01 | [Pipe Hanger Alignment for CHW Pipes](scripts/01-chilled-water-pipe-hanger-alignment) | Parameter Automation | Automatically aligns pipe hanger elevation to the host pipe's centerline elevation across a selected view. |
+| 02 | [Hanger Rod Alignment to Nearest Structure](scripts/02-pipe-hanger-rod-str-alignment) | Parameter Automation / Raycasting | Filters hanger families, raycasts up to the nearest structural element, and sets rod length to match automatically. |
 
 *(More scripts will be added here as they're documented.)*
 
