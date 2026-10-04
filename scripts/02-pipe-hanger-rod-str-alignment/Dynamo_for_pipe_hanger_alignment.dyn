@@ -1,0 +1,663 @@
+{
+  "Uuid": "35b23efd-b2be-460c-b558-7191b35578ad",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "Dynamo for pipe hanger alignment",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [
+    {
+      "Id": "36e93da1a9574af4a64229e5cf956a2f",
+      "Name": "Python Script",
+      "Type": "unknown",
+      "InitialValue": "",
+      "Description": "Runs an embedded Python script."
+    }
+  ],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "\"\"\"\r\nDynamo Python3 (PythonNet3 engine) — Revit 2026\r\nFilter hanger family instances down to \"real\" (rod) hangers, excluding\r\nside-wall hangers, based on FAMILY NAME keyword matching.\r\n\r\nUse this as a step BEFORE the align_hanger_rods_to_structure.py script —\r\nwire its OUT into IN[0] of that script.\r\n\r\nINPUTS (IN):\r\n  IN[0] : list  - All candidate hanger family instances, from ALL your hanger\r\n                  families combined (e.g. multiple \"All Elements of Family Type\"\r\n                  nodes fed into a List.Join / List.Flatten before this node).\r\n  IN[1] : list of str (optional) - Keywords that, if found in the family name\r\n                  (case-insensitive), mean EXCLUDE this element.\r\n                  Defaults to [\"side wall\", \"sidewall\", \"wall hanger\"].\r\n  IN[2] : list of str (optional) - Keywords that, if provided, mean the family\r\n                  name must contain AT LEAST ONE of these to be INCLUDED\r\n                  (case-insensitive). Leave empty/unwired to skip this check\r\n                  (i.e. include everything not excluded by IN[1]).\r\n                  Example: [\"hanger\", \"rod\"] if all your rod-hanger families\r\n                  have \"Hanger\" or \"Rod\" somewhere in the name.\r\n\r\nOUTPUT (OUT):\r\n  A dictionary: {\"filtered\": [...], \"excluded\": [...], \"report\": [...]}\r\n  \"filtered\" is what you wire into the alignment script.\r\n  \"excluded\" and \"report\" are so you can sanity-check what got dropped.\r\n\"\"\"\r\n\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nfrom Autodesk.Revit.DB import FamilyInstance\r\n\r\ncandidates = UnwrapElement(IN[0]) if not isinstance(IN[0], list) else UnwrapElement(IN[0])\r\nif not isinstance(candidates, list):\r\n    candidates = [candidates]\r\n\r\nexclude_keywords = [k.lower() for k in IN[1]] if len(IN) > 1 and IN[1] else [\"side wall\", \"sidewall\", \"wall hanger\"]\r\ninclude_keywords = [k.lower() for k in IN[2]] if len(IN) > 2 and IN[2] else []\r\n\r\nfiltered = []\r\nexcluded = []\r\nreport = []\r\n\r\nfor el in candidates:\r\n    try:\r\n        if isinstance(el, FamilyInstance):\r\n            fam_name = el.Symbol.Family.Name\r\n        else:\r\n            # Fallback for non-FamilyInstance elements (shouldn't normally hit this)\r\n            fam_name = el.Name\r\n\r\n        fam_name_lower = fam_name.lower()\r\n\r\n        is_excluded = any(kw in fam_name_lower for kw in exclude_keywords)\r\n        is_included = True if not include_keywords else any(kw in fam_name_lower for kw in include_keywords)\r\n\r\n        if is_excluded or not is_included:\r\n            excluded.append(el)\r\n            reason = \"matched exclude keyword\" if is_excluded else \"did not match include keyword\"\r\n            report.append(\"Element {} | Family '{}' | EXCLUDED ({})\".format(el.Id.Value, fam_name, reason))\r\n        else:\r\n            filtered.append(el)\r\n            report.append(\"Element {} | Family '{}' | INCLUDED\".format(el.Id.Value, fam_name))\r\n\r\n    except Exception as e:\r\n        excluded.append(el)\r\n        report.append(\"Element {}: ERROR reading family name - {}\".format(el.Id.Value, str(e)))\r\n\r\nOUT = {\r\n    \"filtered\": filtered,\r\n    \"excluded\": excluded,\r\n    \"counts\": {\"total\": len(candidates), \"filtered\": len(filtered), \"excluded\": len(excluded)},\r\n    \"report\": report\r\n}\r\n",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "ef1c992ce4b846938f64fc4d2cba53d9",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "5cd52e8c561c4c348bc4e5874cbf727f",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "93e34a9299a346dfa89ef4ea3c82306f",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "65d9ad09f73f48a28c5ad2a656678009",
+          "Name": "IN[2]",
+          "Description": "Input #2",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "c1609273bae14b8a84bf29dad2fc0d06",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "e004087408fc46b0b200b76dfbb57d5e",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "9ee85507592d4084b2b37d467f304983",
+          "Name": "",
+          "Description": "Value of expression at line 1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Allows for DesignScript code to be authored directly",
+      "Code": "[\"ME_PAC_Chilled Water Rod Support Ins 32 mm_CRS\"];"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "891e0e23a6d7427bbb2bcda3a2e50192",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        {
+          "Id": "1a63936d88ee4028ab17027e1ccbc9b6",
+          "Name": "dictionary",
+          "Description": "DesignScript.Builtin.Dictionary",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "753a5f4d953e417b927c6763eebde568",
+          "Name": "key",
+          "Description": "The key in the Dictionary to obtain value for\n\nstring",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "2e863d0dc42a46678ea4a918dae30467",
+          "Name": "value",
+          "Description": "Value at the specified key or null if it is not set",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "FunctionSignature": "DesignScript.Builtin.Dictionary.ValueAtKey@string",
+      "Replication": "Auto",
+      "Description": "Obtain the value at a specified key\n\nDictionary.ValueAtKey (key: string): var[]..[]"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "c9c64faecc424f7c9beb2c295fbc0d6a",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "d6d44528cedb41fdb5e5806eef3798b3",
+          "Name": "",
+          "Description": "Value of expression at line 1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Allows for DesignScript code to be authored directly",
+      "Code": "\"filtered\";"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "09f3157b36f64f88aca4f3930717dc54",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "0de5347e6c714b5fa12ab21bf1378491",
+          "Name": "",
+          "Description": "Value of expression at line 1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Allows for DesignScript code to be authored directly",
+      "Code": "[\"Support_Height01\",\"Support_Height02\"];"
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "\"\"\"\r\nDynamo Python3 (PythonNet3 engine) — Revit 2026\r\nAlign generic-model hanger rods to the nearest structure above them\r\n(structural framing, structural columns, or floors — whichever is closer).\r\n\r\nINPUTS (IN):\r\n  IN[0] : list  - Hanger family instances (e.g. from \"All Elements of Family/Category\")\r\n  IN[1] : bool  - DRY_RUN. True = report only, no changes written. False = write changes.\r\n  IN[2] : str   - (optional) Name of the instance parameter that stores rod length.\r\n                  Defaults to \"Rod Length\" if not supplied.\r\n  IN[3] : float - (optional) Max search distance in feet for the upward raycast.\r\n                  Defaults to 50 ft (covers most floor-to-floor heights). Increase\r\n                  for tall/atrium spaces.\r\n\r\nOUTPUT (OUT):\r\n  A dictionary with counts + a detailed per-element report list.\r\n\r\nCONFIG NOTES:\r\n  - This assumes the hanger's LocationPoint (family origin) is the point the rod\r\n    hangs FROM (i.e. effectively the bottom of the rod / top of the hung service),\r\n    and that the rod parameter is a plain Length parameter driving an extrusion\r\n    or void in the family. If your family instead uses two adaptive points\r\n    (base + top), this script will need a different approach (moving the top\r\n    point rather than setting a length parameter) — let me know and I'll adjust.\r\n  - Uses a single ReferenceIntersector (built once, reused for every hanger) for\r\n    performance on large models — do not recreate it inside the loop.\r\n  - Wrapped in ONE transaction for the whole run rather than per-element, and\r\n    doc.Regenerate() is called only once at the end — this is the fix for the\r\n    freeze/crash pattern you hit before with per-element transactions on a\r\n    large element set.\r\n\"\"\"\r\n\r\nimport clr\r\nclr.AddReference('RevitServices')\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitNodes')\r\n\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\nfrom Autodesk.Revit.DB import (\r\n    FilteredElementCollector, BuiltInCategory, ElementCategoryFilter,\r\n    LogicalOrFilter, XYZ, ReferenceIntersector, FindReferenceTarget,\r\n    Transaction, ElementId\r\n)\r\nimport System\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\nuidoc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument\r\n\r\n# ---------------- CONFIG ----------------\r\nhangers_input = UnwrapElement(IN[0]) if not isinstance(IN[0], list) else UnwrapElement(IN[0])\r\nif not isinstance(hangers_input, list):\r\n    hangers_input = [hangers_input]\r\n\r\nDRY_RUN = IN[1]\r\n_rod_param_input = IN[2] if len(IN) > 2 and IN[2] else \"Rod Length\"\r\n# Accept either a single parameter name (str) or a list of names (for hangers\r\n# with multiple rods, e.g. trapeze hangers with two independent rod params).\r\n# The SAME computed structure distance is applied to every parameter listed.\r\nROD_PARAM_NAMES = _rod_param_input if isinstance(_rod_param_input, list) else [_rod_param_input]\r\nMAX_SEARCH_FT = IN[3] if len(IN) > 3 and IN[3] else 50.0\r\n# Whether the raycast should also look for structure inside linked Revit models\r\n# (very common for MEP hangers, since structure is usually a separate link).\r\n# Defaults to True. Wire a Boolean into IN[4] if you ever need to turn it off.\r\nSEARCH_LINKED_MODELS = IN[4] if len(IN) > 4 and IN[4] is not None else True\r\n# How far the rod should extend PAST the structure surface (penetration into\r\n# the slab/ceiling/framing), in INCHES. Defaults to 2 in. Wire a number into\r\n# IN[5] to change it. Set to 0 if you want the rod to stop exactly at the\r\n# structure surface instead.\r\nPENETRATION_IN = IN[5] if len(IN) > 5 and IN[5] is not None else 2.0\r\nPENETRATION_FT = PENETRATION_IN / 12.0\r\n\r\nTARGET_CATEGORIES = [\r\n    BuiltInCategory.OST_StructuralFraming,\r\n    BuiltInCategory.OST_StructuralColumns,\r\n    BuiltInCategory.OST_Floors,\r\n]\r\n# -----------------------------------------\r\n\r\nreport = []\r\nelements_would_update = []   # actual Element objects flagged for change (dry run) - use for visual review\r\nelements_updated = []        # actual Element objects that WERE changed (live run)\r\nelements_no_structure = []   # actual Element objects where no structure was found\r\ncounts = {\r\n    \"total_checked\": 0,\r\n    \"updated\": 0,\r\n    \"no_structure_found\": 0,\r\n    \"no_location_point\": 0,\r\n    \"param_missing_or_readonly\": 0,\r\n    \"would_update_dry_run\": 0,\r\n    \"errors\": 0,\r\n}\r\n\r\n# Build a single 3D view for the ReferenceIntersector (needs a 3D view, not the active view\r\n# if active view isn't 3D). Falls back to any available 3D view in the document.\r\nview3d = None\r\ncollector_views = FilteredElementCollector(doc).OfClass(clr.GetClrType(System.Type.GetType(\"Autodesk.Revit.DB.View3D, RevitAPI\")))\r\nfor v in collector_views:\r\n    if not v.IsTemplate:\r\n        view3d = v\r\n        break\r\n\r\nif view3d is None:\r\n    IN0 = None\r\n    OUT = {\"error\": \"No non-template 3D view found in the document. Create one 3D view and re-run.\"}\r\nelse:\r\n    # Build category filter (OR across the target categories)\r\n    cat_filters = [ElementCategoryFilter(bic) for bic in TARGET_CATEGORIES]\r\n    combined_filter = cat_filters[0]\r\n    for f in cat_filters[1:]:\r\n        combined_filter = LogicalOrFilter(combined_filter, f)\r\n\r\n    ref_intersector = ReferenceIntersector(combined_filter, FindReferenceTarget.Element, view3d)\r\n    ref_intersector.FindReferencesInRevitLinks = SEARCH_LINKED_MODELS\r\n\r\n    if not DRY_RUN:\r\n        t = Transaction(doc, \"Align hanger rods to structure\")\r\n        t.Start()\r\n\r\n    for hanger in hangers_input:\r\n        counts[\"total_checked\"] += 1\r\n        try:\r\n            loc = hanger.Location\r\n            if not hasattr(loc, \"Point\"):\r\n                counts[\"no_location_point\"] += 1\r\n                report.append(\"Element {}: SKIPPED - no LocationPoint (not a point-based family?)\".format(hanger.Id.Value))\r\n                continue\r\n\r\n            origin = loc.Point\r\n            direction = XYZ(0, 0, 1)  # straight up\r\n\r\n            hits = ref_intersector.Find(origin, direction)\r\n            closest = None\r\n            closest_dist = None\r\n            for hit in hits:\r\n                dist = hit.Proximity\r\n                if dist <= 0 or dist > MAX_SEARCH_FT:\r\n                    continue\r\n                if closest_dist is None or dist < closest_dist:\r\n                    closest_dist = dist\r\n                    closest = hit\r\n\r\n            if closest is None:\r\n                counts[\"no_structure_found\"] += 1\r\n                elements_no_structure.append(hanger)\r\n                report.append(\"Element {}: NO STRUCTURE FOUND within {} ft above\".format(hanger.Id.Value, MAX_SEARCH_FT))\r\n                continue\r\n\r\n            new_val = closest_dist + PENETRATION_FT\r\n            any_param_updated_this_hanger = False\r\n\r\n            for rod_param_name in ROD_PARAM_NAMES:\r\n                param = hanger.LookupParameter(rod_param_name)\r\n                if param is None or param.IsReadOnly:\r\n                    counts[\"param_missing_or_readonly\"] += 1\r\n                    report.append(\"Element {}: PARAMETER '{}' missing or read-only\".format(hanger.Id.Value, rod_param_name))\r\n                    continue\r\n\r\n                old_val = param.AsDouble()\r\n\r\n                if DRY_RUN:\r\n                    report.append(\"Element {}: WOULD UPDATE '{}' from {:.3f} ft to {:.3f} ft (structure surface at {:.3f} ft + {:.2f} in penetration)\".format(\r\n                        hanger.Id.Value, rod_param_name, old_val, new_val, closest_dist, PENETRATION_IN))\r\n                else:\r\n                    param.Set(new_val)\r\n                    report.append(\"Element {}: UPDATED '{}' from {:.3f} ft to {:.3f} ft\".format(\r\n                        hanger.Id.Value, rod_param_name, old_val, new_val))\r\n                any_param_updated_this_hanger = True\r\n\r\n            if any_param_updated_this_hanger:\r\n                if DRY_RUN:\r\n                    counts[\"would_update_dry_run\"] += 1\r\n                    elements_would_update.append(hanger)\r\n                else:\r\n                    counts[\"updated\"] += 1\r\n                    elements_updated.append(hanger)\r\n\r\n        except Exception as e:\r\n            counts[\"errors\"] += 1\r\n            report.append(\"Element {}: ERROR - {}\".format(hanger.Id.Value, str(e)))\r\n\r\n    if not DRY_RUN:\r\n        doc.Regenerate()\r\n        t.Commit()\r\n\r\n    OUT = {\r\n        \"summary\": counts,\r\n        \"dry_run\": DRY_RUN,\r\n        \"rod_parameter_used\": ROD_PARAM_NAMES,\r\n        \"report\": report,\r\n        \"elements_would_update\": elements_would_update,\r\n        \"elements_updated\": elements_updated,\r\n        \"elements_no_structure\": elements_no_structure\r\n    }",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "a909b4bded054c5b961030afebf4d089",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "3e0a4e4a3f2245fb96fc03387238b539",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "ecde1fd7be3e48ce920cc398ec20e1b7",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "6249af9a3cfa4779a4b56ffdbcf87afe",
+          "Name": "IN[2]",
+          "Description": "Input #2",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "1a3deb062f794fee84fce879481e4834",
+          "Name": "IN[3]",
+          "Description": "Input #3",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "2b3afce7abd7496381cf319edb35a890",
+          "Name": "IN[4]",
+          "Description": "Input #4",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "393ed83e6a4440058ab49b7832b91c3f",
+          "Name": "IN[5]",
+          "Description": "Input #5",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "534e3b1267644caca2a1d90c0e014859",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "f2d75323b35540d7bfb37fe4f30c1c8c",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "2592a9478220444f893664be3b3eafb7",
+          "Name": "",
+          "Description": "Boolean",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Enables selection between True and False",
+      "InputValue": false
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "\"\"\"\r\nDynamo Python3 (PythonNet3 engine) — Revit 2026\r\nCollect elements of a given category that are visible/present within a\r\nSPECIFIC view only (respects that view's crop box, visibility/graphics\r\noverrides, and phase) — instead of collecting from the whole model.\r\n\r\nUse this in place of the \"Categories + All Elements of Category\" nodes at\r\nthe start of your graph. Its output feeds into the same filter script\r\n(filter_hangers_exclude_sidewall.py) exactly as before.\r\n\r\nINPUTS (IN):\r\n  IN[0] : View element OR string - Either wire in a Revit View element\r\n                 directly (e.g. from Dynamo's \"Views\" / \"Select Model Element\"\r\n                 node, or \"Views.GetByName\"), OR pass the exact view name as\r\n                 a string and this script will look it up for you.\r\n  IN[1] : str (optional) - Built-in category name to collect, as it appears\r\n                 after \"OST_\" in the Revit API (e.g. \"PipeAccessory\").\r\n                 Defaults to \"PipeAccessory\" to match your hanger setup.\r\n\r\nOUTPUT (OUT):\r\n  A dictionary: {\"elements\": [...], \"view_name\": \"...\", \"count\": N}\r\n  Wire OUT[\"elements\"] into the filter script's IN[0], same as before.\r\n\"\"\"\r\n\r\nimport clr\r\nclr.AddReference('RevitServices')\r\nclr.AddReference('RevitAPI')\r\n\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, View\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\n\r\nview_input = UnwrapElement(IN[0])\r\ncategory_name = IN[1] if len(IN) > 1 and IN[1] else \"PipeAccessory\"\r\n\r\n# Resolve the view: accept either an actual View element, or a name string.\r\ntarget_view = None\r\nif isinstance(view_input, View):\r\n    target_view = view_input\r\nelif isinstance(view_input, str):\r\n    all_views = FilteredElementCollector(doc).OfClass(View).WhereElementIsNotElementType().ToElements()\r\n    for v in all_views:\r\n        if not v.IsTemplate and v.Name == view_input:\r\n            target_view = v\r\n            break\r\n\r\nif target_view is None:\r\n    OUT = {\"error\": \"Could not resolve a view from IN[0]. Check the view name matches exactly, or wire in a View element directly.\", \"elements\": [], \"count\": 0}\r\nelse:\r\n    try:\r\n        bic = getattr(BuiltInCategory, \"OST_\" + category_name)\r\n    except AttributeError:\r\n        OUT = {\"error\": \"Unknown category name '{}'. Check the exact BuiltInCategory spelling.\".format(category_name), \"elements\": [], \"count\": 0}\r\n    else:\r\n        collector = FilteredElementCollector(doc, target_view.Id).OfCategory(bic).WhereElementIsNotElementType()\r\n        elements = list(collector.ToElements())\r\n\r\n        OUT = {\r\n            \"elements\": elements,\r\n            \"view_name\": target_view.Name,\r\n            \"count\": len(elements)\r\n        }",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "36e93da1a9574af4a64229e5cf956a2f",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "d19c471bab80409dbd11c9338e4f1ac6",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "9ef6147570e84b499687d2e6bfa4c0aa",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "e726790fe9ca47d0aae1be76d7a486f4",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "75f2755b146541d0883ec6ea6e99ca07",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        {
+          "Id": "c76f8722ccea46be8f7a9eb9d7e5b5b1",
+          "Name": "dictionary",
+          "Description": "DesignScript.Builtin.Dictionary",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "e375a802645a4232ab0623f58391fdf6",
+          "Name": "key",
+          "Description": "The key in the Dictionary to obtain value for\n\nstring",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "d56f2e4028c8460d9ef3a662e7db6e75",
+          "Name": "value",
+          "Description": "Value at the specified key or null if it is not set",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "FunctionSignature": "DesignScript.Builtin.Dictionary.ValueAtKey@string",
+      "Replication": "Auto",
+      "Description": "Obtain the value at a specified key\n\nDictionary.ValueAtKey (key: string): var[]..[]"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "6a9f637651c94d64b1f03bfd0fa60faf",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "37e5444065544bd7836d3c2bbdc530dc",
+          "Name": "",
+          "Description": "Value of expression at line 1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Allows for DesignScript code to be authored directly",
+      "Code": "\"elements\";"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 468.0,
+      "WatchHeight": 394.0,
+      "Id": "f2daa860e0e54bcda23e9ee4fb69e502",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "93c14da8067c44528f3cf7bbea152b5a",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "f032c9cc294e4bd682d67ea3fb283e46",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    },
+    {
+      "ConcreteType": "DSRevitNodesUI.Views, DSRevitNodesUI",
+      "SelectedIndex": 3,
+      "SelectedString": "{3D - bim1026KWF}",
+      "Id": "cf48446ce5b948548018340f1f07eb0d",
+      "NodeType": "ExtensionNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "f65d411e68b5459cbf78414a657cd070",
+          "Name": "Views",
+          "Description": "The selected Views",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "All views available in the current document."
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "c1609273bae14b8a84bf29dad2fc0d06",
+      "End": "1a63936d88ee4028ab17027e1ccbc9b6",
+      "Id": "40b661035512447e8108cfa6faf068ed",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "9ee85507592d4084b2b37d467f304983",
+      "End": "65d9ad09f73f48a28c5ad2a656678009",
+      "Id": "e765f12cbd394b7f896c583acf3e6d1f",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "2e863d0dc42a46678ea4a918dae30467",
+      "End": "3e0a4e4a3f2245fb96fc03387238b539",
+      "Id": "33ff82cc88c7452b8f219b91c6cf4da5",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "d6d44528cedb41fdb5e5806eef3798b3",
+      "End": "753a5f4d953e417b927c6763eebde568",
+      "Id": "bdf717f4a1874b55bb2e2a162a45301f",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "0de5347e6c714b5fa12ab21bf1378491",
+      "End": "6249af9a3cfa4779a4b56ffdbcf87afe",
+      "Id": "5f43af9a93ef4fd0bcc56ecda4b3bb25",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "534e3b1267644caca2a1d90c0e014859",
+      "End": "93c14da8067c44528f3cf7bbea152b5a",
+      "Id": "d54e78d8844149f99387148744dfc2d4",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "2592a9478220444f893664be3b3eafb7",
+      "End": "ecde1fd7be3e48ce920cc398ec20e1b7",
+      "Id": "952fd54a0c67422292fd67f372411f67",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "e726790fe9ca47d0aae1be76d7a486f4",
+      "End": "c76f8722ccea46be8f7a9eb9d7e5b5b1",
+      "Id": "5e6f861a96eb4922a9ab44ccf8793c3f",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "d56f2e4028c8460d9ef3a662e7db6e75",
+      "End": "5cd52e8c561c4c348bc4e5874cbf727f",
+      "Id": "b59dbee2155f4c00b71880f3be496d8d",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "37e5444065544bd7836d3c2bbdc530dc",
+      "End": "e375a802645a4232ab0623f58391fdf6",
+      "Id": "0e1c687234734bfb9acbfb4b0a77a938",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "f65d411e68b5459cbf78414a657cd070",
+      "End": "d19c471bab80409dbd11c9338e4f1ac6",
+      "Id": "bb349360fe9d4baea6e537e37fc76769",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": true,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Properties",
+      "Version": "3.4",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "9.0",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.4.1.7055",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "ef1c992ce4b846938f64fc4d2cba53d9",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 484.9742703624233,
+        "Y": -9.40352600301
+      },
+      {
+        "Id": "e004087408fc46b0b200b76dfbb57d5e",
+        "Name": "Code Block",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -16.780533247586106,
+        "Y": 227.00985065501783
+      },
+      {
+        "Id": "891e0e23a6d7427bbb2bcda3a2e50192",
+        "Name": "Dictionary.ValueAtKey",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 1038.9926040707114,
+        "Y": -90.05909739270493
+      },
+      {
+        "Id": "c9c64faecc424f7c9beb2c295fbc0d6a",
+        "Name": "Code Block",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 759.7303066265326,
+        "Y": 83.10106136726245
+      },
+      {
+        "Id": "09f3157b36f64f88aca4f3930717dc54",
+        "Name": "Code Block",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 790.3837878873185,
+        "Y": 504.0912563540985
+      },
+      {
+        "Id": "a909b4bded054c5b961030afebf4d089",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 1409.4320115167543,
+        "Y": 77.39230582531701
+      },
+      {
+        "Id": "f2d75323b35540d7bfb37fe4f30c1c8c",
+        "Name": "Boolean",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 980.0164133438257,
+        "Y": 175.21627494263515
+      },
+      {
+        "Id": "36e93da1a9574af4a64229e5cf956a2f",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": true,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -142.45399923714467,
+        "Y": -343.17321411758877
+      },
+      {
+        "Id": "75f2755b146541d0883ec6ea6e99ca07",
+        "Name": "Dictionary.ValueAtKey",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 146.85136002548154,
+        "Y": -308.9983962142969
+      },
+      {
+        "Id": "6a9f637651c94d64b1f03bfd0fa60faf",
+        "Name": "Code Block",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -122.87297942681255,
+        "Y": -77.35184300154697
+      },
+      {
+        "Id": "f2daa860e0e54bcda23e9ee4fb69e502",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 1709.645046221324,
+        "Y": 158.3782986362378
+      },
+      {
+        "Id": "cf48446ce5b948548018340f1f07eb0d",
+        "Name": "Views",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -527.7796540690271,
+        "Y": -344.88507906156104
+      }
+    ],
+    "Annotations": [],
+    "X": 472.55501723087724,
+    "Y": 307.56323995982996,
+    "Zoom": 0.2962122318887935
+  }
+}
