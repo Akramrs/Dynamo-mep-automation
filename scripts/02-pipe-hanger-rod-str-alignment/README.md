@@ -54,6 +54,4 @@ Alignment script returns a dictionary with a `summary` count breakdown (`total_c
 - Always run with `DRY_RUN = True` first on a small view before committing changes on a production model.
 
 ## Before / After
-![Hanger rod to structure alignment demo](assets/hanger-rod-alignment-demo.mp4)
-
-*(GitHub doesn't autoplay video in README previews — click the file to view it, or consider converting to a GIF for inline playback.)*
+![Hanger rod to structure alignment demo](assets/hanger-rod-alignment-demo.gif)
