@@ -1,5 +1,5 @@
 # 3D View Segregation by Level (Linked ARC Model)
-
+![Dynamo graph](assets/dynamo-graph.png)
 **Sample run:** scans a linked architectural model, works out its true extents, and automatically creates one isometric 3D view per level — each one section-boxed to just that floor — skipping any that already exist.
 
 ## Overview
