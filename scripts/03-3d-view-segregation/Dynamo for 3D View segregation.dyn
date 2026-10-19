@@ -1,0 +1,420 @@
+{
+  "Uuid": "0f93e4d7-8ca3-49ac-8a33-bfd672b05db0",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "Dynamo for 3D View segregation",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\n\r\n# ---------------------------------------------------------\r\n# Revit API\r\n# ---------------------------------------------------------\r\n\r\nclr.AddReference(\"RevitAPI\")\r\nfrom Autodesk.Revit.DB import *\r\n\r\n# ---------------------------------------------------------\r\n# Revit Services\r\n# ---------------------------------------------------------\r\n\r\nclr.AddReference(\"RevitServices\")\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\n\r\n# ---------------------------------------------------------\r\n# INPUTS\r\n#\r\n# IN[0] = selected Revit Link Instance\r\n# IN[1] = bottom offset in mm\r\n# IN[2] = top offset in mm\r\n# ---------------------------------------------------------\r\n\r\nlink_input = IN[0]\r\nbottom_offset_mm = IN[1]\r\ntop_offset_mm = IN[2]\r\n\r\n# ---------------------------------------------------------\r\n# UNWRAP LINK\r\n# ---------------------------------------------------------\r\n\r\nlink_instance = UnwrapElement(link_input)\r\n\r\nif link_instance is None:\r\n    raise Exception(\"No RVT link was selected.\")\r\n\r\nif not isinstance(link_instance, RevitLinkInstance):\r\n    raise Exception(\r\n        \"IN[0] must be a Revit Link Instance.\"\r\n    )\r\n\r\n# ---------------------------------------------------------\r\n# LINK DOCUMENT\r\n# ---------------------------------------------------------\r\n\r\nlink_doc = link_instance.GetLinkDocument()\r\n\r\nif link_doc is None:\r\n    raise Exception(\r\n        \"The selected RVT link is unloaded. \"\r\n        \"Load the link before running the script.\"\r\n    )\r\n\r\n# ---------------------------------------------------------\r\n# LINK TRANSFORM\r\n#\r\n# Converts ARC link coordinates into HOST coordinates.\r\n# ---------------------------------------------------------\r\n\r\nlink_transform = link_instance.GetTotalTransform()\r\n\r\n# ---------------------------------------------------------\r\n# CATEGORIES TO EXCLUDE\r\n# ---------------------------------------------------------\r\n\r\nexcluded_category_names = [\r\n    \"OST_Grids\",\r\n    \"OST_Levels\",\r\n    \"OST_ReferencePlanes\",\r\n    \"OST_Cameras\",\r\n    \"OST_Elev\",\r\n    \"OST_Sections\",\r\n    \"OST_Views\",\r\n    \"OST_Topography\",\r\n    \"OST_Site\",\r\n    \"OST_ProjectBasePoint\",\r\n    \"OST_SharedBasePoint\",\r\n    \"OST_SunPath\",\r\n    \"OST_ScopeBoxes\",\r\n]\r\n\r\nexcluded_ids = set()\r\n\r\nfor name in excluded_category_names:\r\n\r\n    bic = getattr(BuiltInCategory, name, None)\r\n\r\n    if bic is None:\r\n        continue\r\n\r\n    try:\r\n        cat = Category.GetCategory(link_doc, bic)\r\n        if cat is not None:\r\n            excluded_ids.add(cat.Id.IntegerValue)\r\n    except:\r\n        pass\r\n\r\n# ---------------------------------------------------------\r\n# FIND LINK ELEMENT BOUNDING BOX\r\n# ---------------------------------------------------------\r\n\r\nmin_x = None\r\nmin_y = None\r\nmax_x = None\r\nmax_y = None\r\n\r\n# ---------------------------------------------------------\r\n# DIAGNOSTIC COUNTERS\r\n# ---------------------------------------------------------\r\n\r\ntotal_scanned = 0\r\nno_category = 0\r\nnot_model_type = 0\r\nexcluded_hit = 0\r\nbbox_none = 0\r\nbbox_exception = 0\r\ntransform_exception = 0\r\nincluded_count = 0\r\n\r\ncategory_names_seen = {}\r\nbbox_exception_samples = []\r\ntransform_exception_samples = []\r\n\r\ncollector = FilteredElementCollector(link_doc) \\\r\n    .WhereElementIsNotElementType()\r\n\r\nfor element in collector:\r\n\r\n    total_scanned += 1\r\n\r\n    # -------------------------------------------------------\r\n    # CATEGORY CHECK\r\n    # -------------------------------------------------------\r\n\r\n    try:\r\n        category = element.Category\r\n    except:\r\n        no_category += 1\r\n        continue\r\n\r\n    if category is None:\r\n        no_category += 1\r\n        continue\r\n\r\n    try:\r\n        cat_name = category.Name\r\n    except:\r\n        cat_name = \"UNKNOWN\"\r\n\r\n    category_names_seen[cat_name] = category_names_seen.get(cat_name, 0) + 1\r\n\r\n    try:\r\n        cat_type = category.CategoryType\r\n    except:\r\n        not_model_type += 1\r\n        continue\r\n\r\n    if cat_type != CategoryType.Model:\r\n        not_model_type += 1\r\n        continue\r\n\r\n    try:\r\n        cat_id = category.Id.IntegerValue\r\n    except:\r\n        cat_id = None\r\n\r\n    if cat_id in excluded_ids:\r\n        excluded_hit += 1\r\n        continue\r\n\r\n    # -------------------------------------------------------\r\n    # BOUNDING BOX RETRIEVAL (isolated so we can see failures)\r\n    # -------------------------------------------------------\r\n\r\n    try:\r\n        bbox = element.get_BoundingBox(None)\r\n    except Exception as e:\r\n        bbox_exception += 1\r\n        if len(bbox_exception_samples) < 5:\r\n            bbox_exception_samples.append(cat_name + \" | \" + str(e))\r\n        continue\r\n\r\n    if bbox is None:\r\n        bbox_none += 1\r\n        continue\r\n\r\n    # -------------------------------------------------------\r\n    # TRANSFORM (isolated so we can see failures)\r\n    # -------------------------------------------------------\r\n\r\n    try:\r\n        p_min = link_transform.OfPoint(bbox.Min)\r\n        p_max = link_transform.OfPoint(bbox.Max)\r\n    except Exception as e:\r\n        transform_exception += 1\r\n        if len(transform_exception_samples) < 5:\r\n            transform_exception_samples.append(cat_name + \" | \" + str(e))\r\n        continue\r\n\r\n    xs = [p_min.X, p_max.X]\r\n    ys = [p_min.Y, p_max.Y]\r\n\r\n    local_min_x = min(xs)\r\n    local_max_x = max(xs)\r\n    local_min_y = min(ys)\r\n    local_max_y = max(ys)\r\n\r\n    if min_x is None:\r\n        min_x = local_min_x\r\n        max_x = local_max_x\r\n        min_y = local_min_y\r\n        max_y = local_max_y\r\n    else:\r\n        min_x = min(min_x, local_min_x)\r\n        max_x = max(max_x, local_max_x)\r\n        min_y = min(min_y, local_min_y)\r\n        max_y = max(max_y, local_max_y)\r\n\r\n    included_count += 1\r\n\r\n# ---------------------------------------------------------\r\n# TOP CATEGORY NAMES BY COUNT\r\n# ---------------------------------------------------------\r\n\r\nsorted_categories = sorted(\r\n    category_names_seen.items(),\r\n    key=lambda x: -x[1]\r\n)\r\n\r\ntop_categories_report = []\r\nfor name, count in sorted_categories[:15]:\r\n    top_categories_report.append(name + \": \" + str(count))\r\n\r\n# ---------------------------------------------------------\r\n# CHECK LINK EXTENTS\r\n# ---------------------------------------------------------\r\n\r\nif min_x is None:\r\n\r\n    OUT = [\r\n        \"ERROR: No valid elements found\",\r\n        \"Total Elements Scanned\", total_scanned,\r\n        \"No Category\", no_category,\r\n        \"Not Model CategoryType\", not_model_type,\r\n        \"Excluded Category Hit\", excluded_hit,\r\n        \"BBox None\", bbox_none,\r\n        \"BBox Exception Count\", bbox_exception,\r\n        \"BBox Exception Samples\", bbox_exception_samples,\r\n        \"Transform Exception Count\", transform_exception,\r\n        \"Transform Exception Samples\", transform_exception_samples,\r\n        \"Included Count\", included_count,\r\n        \"Top Categories Seen\", top_categories_report,\r\n        \"Selected Link Name\", link_instance.Name\r\n    ]\r\n\r\nelse:\r\n\r\n    # -------------------------------------------------------\r\n    # SMALL XY BUFFER\r\n    # -------------------------------------------------------\r\n\r\n    xy_buffer = 500.0 / 304.8\r\n\r\n    min_x -= xy_buffer\r\n    min_y -= xy_buffer\r\n    max_x += xy_buffer\r\n    max_y += xy_buffer\r\n\r\n    # -------------------------------------------------------\r\n    # OFFSET CONVERSION\r\n    # -------------------------------------------------------\r\n\r\n    bottom_offset = float(bottom_offset_mm) / 304.8\r\n    top_offset = float(top_offset_mm) / 304.8\r\n\r\n    # -------------------------------------------------------\r\n    # GET ALL LEVELS\r\n    # -------------------------------------------------------\r\n\r\n    levels = list(\r\n        FilteredElementCollector(doc)\r\n        .OfClass(Level)\r\n        .WhereElementIsNotElementType()\r\n    )\r\n\r\n    levels = sorted(\r\n        levels,\r\n        key=lambda l: l.ProjectElevation\r\n    )\r\n\r\n    # -------------------------------------------------------\r\n    # GET 3D VIEW TYPE\r\n    # -------------------------------------------------------\r\n\r\n    view_family_type = None\r\n\r\n    for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):\r\n\r\n        if vft.ViewFamily == ViewFamily.ThreeDimensional:\r\n\r\n            view_family_type = vft\r\n            break\r\n\r\n    if view_family_type is None:\r\n        raise Exception(\r\n            \"No 3D ViewFamilyType was found.\"\r\n        )\r\n\r\n    # -------------------------------------------------------\r\n    # EXISTING VIEW NAMES\r\n    # -------------------------------------------------------\r\n\r\n    existing_names = set()\r\n\r\n    for v in FilteredElementCollector(doc).OfClass(View3D):\r\n\r\n        try:\r\n            existing_names.add(v.Name)\r\n        except:\r\n            pass\r\n\r\n    # -------------------------------------------------------\r\n    # RESULTS\r\n    # -------------------------------------------------------\r\n\r\n    created_views = []\r\n    skipped_views = []\r\n    errors = []\r\n\r\n    # -------------------------------------------------------\r\n    # TRANSACTION\r\n    # -------------------------------------------------------\r\n\r\n    TransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\n    try:\r\n\r\n        for i in range(len(levels) - 1):\r\n\r\n            current_level = levels[i]\r\n            next_level = levels[i + 1]\r\n\r\n            try:\r\n\r\n                current_z = current_level.ProjectElevation\r\n                next_z = next_level.ProjectElevation\r\n\r\n                bottom_z = current_z - bottom_offset\r\n                top_z = next_z + top_offset\r\n\r\n                view_name = \"3D - \" + current_level.Name\r\n\r\n                if view_name in existing_names:\r\n\r\n                    skipped_views.append([\r\n                        view_name,\r\n                        \"Already exists\"\r\n                    ])\r\n\r\n                    continue\r\n\r\n                view = View3D.CreateIsometric(\r\n                    doc,\r\n                    view_family_type.Id\r\n                )\r\n\r\n                view.Name = view_name\r\n\r\n                box = BoundingBoxXYZ()\r\n\r\n                box.Min = XYZ(\r\n                    min_x,\r\n                    min_y,\r\n                    bottom_z\r\n                )\r\n\r\n                box.Max = XYZ(\r\n                    max_x,\r\n                    max_y,\r\n                    top_z\r\n                )\r\n\r\n                view.SetSectionBox(box)\r\n\r\n                created_views.append(view)\r\n\r\n                existing_names.add(view_name)\r\n\r\n            except Exception as e:\r\n\r\n                errors.append([\r\n                    current_level.Name,\r\n                    str(e)\r\n                ])\r\n\r\n    finally:\r\n\r\n        TransactionManager.Instance.TransactionTaskDone()\r\n\r\n    # -------------------------------------------------------\r\n    # OUTPUT\r\n    # -------------------------------------------------------\r\n\r\n    OUT = [\r\n        \"Created Views\",\r\n        created_views,\r\n        \"Skipped Views\",\r\n        skipped_views,\r\n        \"Errors\",\r\n        errors,\r\n        \"Selected ARC Link\",\r\n        link_instance.Name,\r\n        \"Building X Min\",\r\n        min_x,\r\n        \"Building X Max\",\r\n        max_x,\r\n        \"Building Y Min\",\r\n        min_y,\r\n        \"Building Y Max\",\r\n        max_y,\r\n        \"Bottom Offset mm\",\r\n        bottom_offset_mm,\r\n        \"Top Offset mm\",\r\n        top_offset_mm\r\n    ]",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "756ed679a5924606acd855601a0ab01f",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "cc587e28bf5c484cbd221c39a78c8457",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "a8ae91059c9345029b93bf00908062a7",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "755e0bd882d54bc59198f340425dc7b1",
+          "Name": "IN[2]",
+          "Description": "Input #2",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "b76681f353f54b958131ba4cbaeacac2",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 1397.0,
+      "WatchHeight": 1048.0,
+      "Id": "69be81c87d6f43dc86f3e615e1b4bb1b",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "07f9277d7d4e434fb1771b3a692ae68e",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "54ab6cc866b24ff39918eb3bbabdf343",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    },
+    {
+      "ConcreteType": "DSRevitNodesUI.Categories, DSRevitNodesUI",
+      "SelectedIndex": 514,
+      "SelectedString": "OST_RvtLinks",
+      "Id": "8a9260de052f449c9f7b534d385bdb7a",
+      "NodeType": "ExtensionNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "d7f4443618504e0690ba8637b0102423",
+          "Name": "Category",
+          "Description": "The selected Category.",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "All built-in categories."
+    },
+    {
+      "ConcreteType": "DSRevitNodesUI.ElementsOfCategory, DSRevitNodesUI",
+      "Id": "d1e3c7bbac8f46c0a34cbe8435f779bb",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "a7c0fb8942cc46e2ae27d47ad1ea9670",
+          "Name": "Category",
+          "Description": "The Category",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "b29c3d3a8a0d470fbda8d778943dd91b",
+          "Name": "Elements",
+          "Description": "An element class.",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Get all elements of the specified category from the model."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
+      "NumberType": "Double",
+      "Id": "729261097aac4fa094ce5544e67fde59",
+      "NodeType": "NumberInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "8b44fed00ab94b2088632d9ce3f4e937",
+          "Name": "",
+          "Description": "Double",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a number",
+      "InputValue": 200.0
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
+      "NumberType": "Double",
+      "Id": "3511d8e9ab7940579c505c0dbe4f31c8",
+      "NodeType": "NumberInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "f4c801c7486546c18d1cc540bf5e3e2f",
+          "Name": "",
+          "Description": "Double",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a number",
+      "InputValue": 200.0
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "d6fc37cf8f954852bdfc1d9a3cfd596e",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        {
+          "Id": "224e0d1bb7df46408f059b6418158480",
+          "Name": "list",
+          "Description": "List to fetch an item from.\n\nvar[]..[]",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "cdbf6d3bb0ae4fd096b3eb34e2d3e8b4",
+          "Name": "index",
+          "Description": "Index of the item to be fetched.\n\nint",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "0da625e0232e43af8525bd9563e1a913",
+          "Name": "item",
+          "Description": "Item in the list at the given index.",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "FunctionSignature": "DSCore.List.GetItemAtIndex@var[]..[],int",
+      "Replication": "Auto",
+      "Description": "Returns an item from the given list that's located at the specified index.\n\nList.GetItemAtIndex (list: var[]..[], index: int): var[]..[]"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
+      "NumberType": "Double",
+      "Id": "40433852d43b43dab99f53f6c17e2818",
+      "NodeType": "NumberInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "0feb8bec19184ebba05603e6bec29813",
+          "Name": "",
+          "Description": "Double",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a number",
+      "InputValue": 12.0
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "b76681f353f54b958131ba4cbaeacac2",
+      "End": "07f9277d7d4e434fb1771b3a692ae68e",
+      "Id": "878af23e6afa40feb37c5941a3a26ff2",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "d7f4443618504e0690ba8637b0102423",
+      "End": "a7c0fb8942cc46e2ae27d47ad1ea9670",
+      "Id": "a30fa2a7708f4420af1ea6eadb6ee98e",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "b29c3d3a8a0d470fbda8d778943dd91b",
+      "End": "224e0d1bb7df46408f059b6418158480",
+      "Id": "bf28b3b4bb9d4118b05644179c47560e",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "8b44fed00ab94b2088632d9ce3f4e937",
+      "End": "a8ae91059c9345029b93bf00908062a7",
+      "Id": "9aef87eba83f4e3e9fc3bd8b98790e5f",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "f4c801c7486546c18d1cc540bf5e3e2f",
+      "End": "755e0bd882d54bc59198f340425dc7b1",
+      "Id": "5f44aba2e0d4454f9240946a82048f1d",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "0da625e0232e43af8525bd9563e1a913",
+      "End": "cc587e28bf5c484cbd221c39a78c8457",
+      "Id": "66ed7716c0e4447da944b62af684fec3",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "0feb8bec19184ebba05603e6bec29813",
+      "End": "cdbf6d3bb0ae4fd096b3eb34e2d3e8b4",
+      "Id": "f3b7acea639c4635acad5ff11c5600b3",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": true,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Properties",
+      "Version": "3.4",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.4.1.7055",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "756ed679a5924606acd855601a0ab01f",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 603.1261127596439,
+        "Y": 262.0
+      },
+      {
+        "Id": "69be81c87d6f43dc86f3e615e1b4bb1b",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 868.1768034863582,
+        "Y": 303.8414121336606
+      },
+      {
+        "Id": "8a9260de052f449c9f7b534d385bdb7a",
+        "Name": "Categories",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -420.8039183821868,
+        "Y": 55.139975246614654
+      },
+      {
+        "Id": "d1e3c7bbac8f46c0a34cbe8435f779bb",
+        "Name": "All Elements of Category",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -99.1148784998228,
+        "Y": 34.75508338878279
+      },
+      {
+        "Id": "729261097aac4fa094ce5544e67fde59",
+        "Name": "Number",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 266.7569227753156,
+        "Y": 423.4914295687066
+      },
+      {
+        "Id": "3511d8e9ab7940579c505c0dbe4f31c8",
+        "Name": "Number",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 251.53824943019606,
+        "Y": 582.9264444324881
+      },
+      {
+        "Id": "d6fc37cf8f954852bdfc1d9a3cfd596e",
+        "Name": "List.GetItemAtIndex",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 290.2339639181565,
+        "Y": 127.4952875520508
+      },
+      {
+        "Id": "40433852d43b43dab99f53f6c17e2818",
+        "Name": "Number",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 14.339234471736972,
+        "Y": 482.2571922141014
+      }
+    ],
+    "Annotations": [],
+    "X": 335.88538220301837,
+    "Y": 191.1695996859906,
+    "Zoom": 0.3061066918981237
+  }
+}
